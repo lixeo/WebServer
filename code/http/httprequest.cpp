@@ -150,69 +150,190 @@ int HttpRequest::ConverHex(char ch) {
     return ch;
 }
 
-// 处理post请求
 void HttpRequest::ParsePost_() {
-    if(method_ == "POST" && header_["Content-Type"] == "application/x-www-form-urlencoded") {
-        ParseFromUrlencoded_();     // POST请求体示例
-        if(DEFAULT_HTML_TAG.count(path_)) { // 如果是登录/注册的path
+    // 安全获取 Content-Type 头（避免使用 operator[] 自动插入）
+    std::string contentType;
+    auto it = header_.find("Content-Type");
+    if (it != header_.end()) {
+        contentType = it->second;
+    }
+    LOG_INFO("ParsePost_ called, method=%s, Content-Type=%s", method_.c_str(), contentType.c_str());
+
+    // 检查方法且 Content-Type 前缀匹配（忽略 charset 等参数）
+    if (method_ == "POST" && !contentType.empty() 
+            && contentType.find("application/x-www-form-urlencoded") == 0) {
+        LOG_INFO("Entering ParseFromUrlencoded_");
+        ParseFromUrlencoded_();     // 解析请求体
+
+        // 登录/注册页面处理
+        if (DEFAULT_HTML_TAG.count(path_)) {
             int tag = DEFAULT_HTML_TAG.find(path_)->second; 
             LOG_DEBUG("Tag:%d", tag);
-            if(tag == 0 || tag == 1) {
+            if (tag == 0 || tag == 1) {
                 bool isLogin = (tag == 1);
-                if(UserVerify(post_["username"], post_["password"], isLogin)) {
+                if (UserVerify(post_["username"], post_["password"], isLogin)) {
                     // 成功时，设置重定向 URL（带用户名参数）
                     SetRedirectUrl("/welcome.html?username=" + post_["username"]);
-                   // 注意：不再修改 path_
-                } 
-                else {
+                } else {
                     path_ = "/error.html";
                 }
             }
         }
     }   
 }
+// // 处理post请求
+// void HttpRequest::ParsePost_() {
+//     LOG_INFO("ParsePost_ called, method=%s, Content-Type=%s", method_.c_str(), header_["Content-Type"].c_str());
+//     if(method_ == "POST" && header_["Content-Type"] == "application/x-www-form-urlencoded") {
+//         LOG_INFO("Entering ParseFromUrlencoded_");
+//         ParseFromUrlencoded_();     // POST请求体示例
+//         if(DEFAULT_HTML_TAG.count(path_)) { // 如果是登录/注册的path
+//             int tag = DEFAULT_HTML_TAG.find(path_)->second; 
+//             LOG_DEBUG("Tag:%d", tag);
+//             if(tag == 0 || tag == 1) {
+//                 bool isLogin = (tag == 1);
+//                 if(UserVerify(post_["username"], post_["password"], isLogin)) {
+//                     // 成功时，设置重定向 URL（带用户名参数）
+//                     SetRedirectUrl("/welcome.html?username=" + post_["username"]);
+//                    // 注意：不再修改 path_
+//                 } 
+//                 else {
+//                     path_ = "/error.html";
+//                 }
+//             }
+//         }
+//     }   
+// }
 
-// 从url中解析编码
-void HttpRequest::ParseFromUrlencoded_() {
-    if(body_.size() == 0) { return; }
+static int HexCharToInt(char ch) {
+    if (ch >= '0' && ch <= '9') return ch - '0';
+    if (ch >= 'A' && ch <= 'F') return ch - 'A' + 10;
+    if (ch >= 'a' && ch <= 'f') return ch - 'a' + 10;
+    return -1;
+}
 
-    string key, value;
-    int num = 0;
-    int n = body_.size();
-    int i = 0, j = 0;
-
-    for(; i < n; i++) {
-        char ch = body_[i];
-        switch (ch) {
-        case '=':
-            key = body_.substr(j, i - j);
-            j = i + 1;
-            break;
-        case '+':
-            body_[i] = ' ';
-            break;
-        case '%':
-            num = ConverHex(body_[i + 1]) * 16 + ConverHex(body_[i + 2]);
-            body_[i + 2] = num % 10 + '0';
-            body_[i + 1] = num / 10 + '0';
-            i += 2;
-            break;
-        case '&':
-            value = body_.substr(j, i - j);
-            j = i + 1;
-            post_[key] = value;
-            LOG_DEBUG("%s = %s", key.c_str(), value.c_str());
-            break;
-        default:
-            break;
+static std::string UrlDecode(const std::string& src) {
+    std::string res;
+    for (size_t i = 0; i < src.size(); ++i) {
+        if (src[i] == '%' && i + 2 < src.size()) {
+            int high = HexCharToInt(src[i+1]);
+            int low  = HexCharToInt(src[i+2]);
+            if (high != -1 && low != -1) {
+                res += static_cast<char>((high << 4) | low);
+                i += 2;
+            } else {
+                res += src[i];
+            }
+        } else if (src[i] == '+') {
+            res += ' ';
+        } else {
+            res += src[i];
         }
     }
-    assert(j <= i);
-    if(post_.count(key) == 0 && j < i) {
-        value = body_.substr(j, i - j);
-        post_[key] = value;
+    return res;
+}
+
+void HttpRequest::ParseFromUrlencoded_() {
+    if (body_.empty()) {
+        LOG_DEBUG("ParseFromUrlencoded_: body is empty");
+        return;
+    }
+
+    LOG_DEBUG("ParseFromUrlencoded_: body = %s", body_.c_str());
+
+    size_t start = 0;
+    int pairCount = 0;
+    while (start < body_.size()) {
+        size_t end = body_.find('&', start);
+        if (end == std::string::npos) end = body_.size();
+
+        std::string pair = body_.substr(start, end - start);
+        size_t eq = pair.find('=');
+        if (eq != std::string::npos) {
+            std::string raw_key = pair.substr(0, eq);
+            std::string raw_value = pair.substr(eq + 1);
+            std::string key = UrlDecode(raw_key);
+            std::string value = UrlDecode(raw_value);
+            post_[key] = value;
+            pairCount++;
+            LOG_DEBUG("Parsed pair %d: raw_key='%s' raw_value='%s' -> key='%s' value='%s'",
+                      pairCount, raw_key.c_str(), raw_value.c_str(), key.c_str(), value.c_str());
+        } else {
+            LOG_DEBUG("Skipped invalid pair (no '='): %s", pair.c_str());
+        }
+        start = end + 1;
+    }
+
+    LOG_DEBUG("ParseFromUrlencoded_ finished, total %d pairs parsed, post_ size = %zu", pairCount, post_.size());
+
+    // 可选：打印所有 post_ 中的键，方便调试
+    for (auto& kv : post_) {
+        LOG_DEBUG("post_ final: %s = %s", kv.first.c_str(), kv.second.c_str());
     }
 }
+
+// void HttpRequest::ParseFromUrlencoded_() {
+//     if (body_.empty()) return;
+
+//     size_t start = 0;
+//     while (start < body_.size()) {
+//         // 找到下一个 '&' 分隔符
+//         size_t end = body_.find('&', start);
+//         if (end == std::string::npos) end = body_.size();
+
+//         std::string pair = body_.substr(start, end - start);
+//         size_t eq = pair.find('=');
+//         if (eq != std::string::npos) {
+//             std::string key = pair.substr(0, eq);
+//             std::string value = pair.substr(eq + 1);
+//             // URL 解码后存储
+//             post_[UrlDecode(key)] = UrlDecode(value);
+//         }
+//         start = end + 1;
+//     }
+// }
+
+// // 从url中解析编码
+// void HttpRequest::ParseFromUrlencoded_() {
+//     if(body_.size() == 0) { return; }
+
+//     string key, value;
+//     int num = 0;
+//     int n = body_.size();
+//     int i = 0, j = 0;
+
+//     for(; i < n; i++) {
+//         char ch = body_[i];
+//         switch (ch) {
+//         case '=':
+//             key = body_.substr(j, i - j);
+//             j = i + 1;
+//             break;
+//         case '+':
+//             body_[i] = ' ';
+//             break;
+//         case '%':
+//             num = ConverHex(body_[i + 1]) * 16 + ConverHex(body_[i + 2]);
+//             body_[i + 2] = num % 10 + '0';
+//             body_[i + 1] = num / 10 + '0';
+//             i += 2;
+//             break;
+//         case '&':
+//             value = body_.substr(j, i - j);
+//             j = i + 1;
+//             post_[key] = value;
+//             LOG_DEBUG("%s = %s", key.c_str(), value.c_str());
+//             break;
+//         default:
+//             break;
+//         }
+//     }
+//     assert(j <= i);
+//     if(post_.count(key) == 0 && j < i) {
+//         value = body_.substr(j, i - j);
+//         post_[key] = value;
+//     }
+// }
 
 /**
  * 用户验证（登录 / 注册）
@@ -387,66 +508,6 @@ bool HttpRequest::UserVerify(const string &name, const string &pwd, bool isLogin
         return insert_ok;
     }
 }
-// bool HttpRequest::UserVerify(const string &name, const string &pwd, bool isLogin) {
-//     if(name == "" || pwd == "") { return false; }
-//     LOG_INFO("Verify name:%s pwd:%s", name.c_str(), pwd.c_str());
-//     MYSQL* sql = nullptr;
-//     SqlConnRAII(&sql, SqlConnPool::Instance());  // 从连接池获取一个连接
-//     assert(sql);
-    
-//     bool flag = false;
-//     unsigned int j = 0;
-//     char order[256] = { 0 };
-//     MYSQL_FIELD *fields = nullptr;
-//     MYSQL_RES *res = nullptr;
-    
-//     if(!isLogin) { flag = true; }  // 注册时预设标记为 true，后续再根据用户名是否存在修改
-//     /* 查询用户及密码 */
-//     snprintf(order, 256, "SELECT username, password FROM user WHERE username='%s' LIMIT 1", name.c_str());
-//     LOG_DEBUG("%s", order);
-
-//     if(mysql_query(sql, order)) { 
-//         mysql_free_result(res);
-//         return false; 
-//     }
-//     res = mysql_store_result(sql);
-//     j = mysql_num_fields(res);
-//     fields = mysql_fetch_fields(res);
-
-//     while(MYSQL_ROW row = mysql_fetch_row(res)) {
-//         LOG_DEBUG("MYSQL ROW: %s %s", row[0], row[1]);
-//         string password(row[1]);
-//         /* 注册行为 且 用户名未被使用*/
-//         if(isLogin) {
-//             if(pwd == password) { flag = true; }
-//             else {
-//                 flag = false;
-//                 LOG_INFO("pwd error!");
-//             }
-//         } 
-//         else { 
-//             flag = false; 
-//             LOG_INFO("user used!");
-//         }
-//     }
-//     mysql_free_result(res);
-
-//     /* 注册行为 且 用户名未被使用*/
-//     if(!isLogin && flag == true) {
-//         LOG_DEBUG("regirster!");
-//         bzero(order, 256);
-//         snprintf(order, 256,"INSERT INTO user(username, password) VALUES('%s','%s')", name.c_str(), pwd.c_str());
-//         LOG_DEBUG( "%s", order);
-//         if(mysql_query(sql, order)) { 
-//             LOG_DEBUG( "Insert error!");
-//             flag = false; 
-//         }
-//         flag = true;
-//     }
-//     // SqlConnPool::Instance()->FreeConn(sql);
-//     LOG_DEBUG( "UserVerify success!!");
-//     return flag;
-// }
 
 std::string HttpRequest::path() const{
     return path_;

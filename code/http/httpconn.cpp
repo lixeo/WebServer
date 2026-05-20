@@ -216,7 +216,7 @@ void HttpConn::handleApiRequest(Buffer& writeBuff) {
     const std::string& method = request_.method();
     const std::string& path = request_.path();
 
-    // 获取用户名：优先从查询参数（GET）或 POST 表单中获取
+    // 获取用户名
     std::string username;
     if (method == "GET") {
         username = request_.GetQueryParam("username");
@@ -303,19 +303,18 @@ void HttpConn::handleApiRequest(Buffer& writeBuff) {
         return;
     }
 
-    // ----- 处理 POST /api/user/update -----
+    // ----- POST /api/user/update -----
     if (path == "/api/user/update" && method == "POST") {
+        // 使用 GetPost 获取所有字段（已自动 URL 解码）
         std::string nickname = request_.GetPost("nickname");
-        std::string avatar = request_.GetPost("avatar");
-        std::string bio = request_.GetPost("bio");
-        std::string email = request_.GetPost("email");
-        std::string gender = request_.GetPost("gender");
-        std::string birthday = request_.GetPost("birthday");   // 新增
+        std::string avatar   = request_.GetPost("avatar");
+        std::string bio      = request_.GetPost("bio");
+        std::string email    = request_.GetPost("email");
+        std::string gender   = request_.GetPost("gender");
+        std::string birthday = request_.GetPost("birthday");
 
-        // 昵称不能为空，若为空则设为用户名
         if (nickname.empty()) nickname = username;
 
-        // 更新语句增加 gender 和 birthday 字段
         const char* update_query = "UPDATE user SET nickname=?, avatar=?, bio=?, email=?, gender=?, birthday=? WHERE username=?";
         MYSQL_STMT* stmt = mysql_stmt_init(sql);
         if (!stmt || mysql_stmt_prepare(stmt, update_query, strlen(update_query)) != 0) {
@@ -332,8 +331,7 @@ void HttpConn::handleApiRequest(Buffer& writeBuff) {
         bind[3].buffer_type = MYSQL_TYPE_STRING; bind[3].buffer = (void*)email.c_str();     bind[3].buffer_length = email.length();
         bind[4].buffer_type = MYSQL_TYPE_STRING; bind[4].buffer = (void*)gender.c_str();    bind[4].buffer_length = gender.length();
 
-        // 处理 birthday 字段：如果为空，设置为 NULL
-        bool is_null_true = true;   // 注意使用 bool 类型
+        bool is_null_true = true;
         if (birthday.empty()) {
             bind[5].buffer_type = MYSQL_TYPE_NULL;
             bind[5].is_null = &is_null_true;
@@ -343,7 +341,7 @@ void HttpConn::handleApiRequest(Buffer& writeBuff) {
             bind[5].buffer_length = birthday.length();
         }
 
-        bind[6].buffer_type = MYSQL_TYPE_STRING; bind[6].buffer = (void*)username.c_str();  bind[6].buffer_length = username.length();
+        bind[6].buffer_type = MYSQL_TYPE_STRING; bind[6].buffer = (void*)username.c_str(); bind[6].buffer_length = username.length();
 
         if (mysql_stmt_bind_param(stmt, bind) != 0) {
             sendJsonError(writeBuff, 500, "Bind parameters failed");
@@ -357,11 +355,11 @@ void HttpConn::handleApiRequest(Buffer& writeBuff) {
         if (ret == 0) {
             sendJsonResponse(writeBuff, 200, "{\"code\":200,\"msg\":\"success\"}");
         } else {
+            LOG_ERROR("Database update failed for user %s", username.c_str());
             sendJsonError(writeBuff, 500, "Database update failed");
         }
         return;
     }
 
-    // 未匹配的 API
     sendJsonError(writeBuff, 404, "API not found");
 }
