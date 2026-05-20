@@ -5,7 +5,7 @@
 
      <meta charset="UTF-8">
 
-     <title>JehanRio-图片</title>
+     <title>图片</title>
      <link rel="icon" href="images/favicon.ico">
      <link rel="stylesheet" href="css/bootstrap.min.css">
      <link rel="stylesheet" href="css/animate.css">
@@ -14,6 +14,51 @@
 
      <!-- Main css -->
      <link rel="stylesheet" href="css/style.css">
+
+     <!-- 添加头像下拉菜单的样式（不影响原有样式） -->
+     <style>
+         .avatar-dropdown {
+             position: relative;
+             display: inline-block;
+             cursor: pointer;
+         }
+         .avatar-img {
+             width: 40px;
+             height: 40px;
+             border-radius: 50%;
+             object-fit: cover;
+             border: 2px solid #fff;
+             box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+         }
+         .dropdown-content {
+             display: none;
+             position: absolute;
+             right: 0;
+             background-color: #f9f9f9;
+             min-width: 120px;
+             box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2);
+             z-index: 1;
+             border-radius: 8px;
+             overflow: hidden;
+         }
+         .dropdown-content a {
+             color: black;
+             padding: 12px 16px;
+             text-decoration: none;
+             display: block;
+             font-size: 14px;
+         }
+         .dropdown-content a:hover {
+             background-color: #f1f1f1;
+         }
+         .avatar-dropdown:hover .dropdown-content {
+             display: block;
+         }
+         .navbar-right .avatar-li {
+             list-style: none;
+             padding: 8px 0 0 15px;
+         }
+     </style>
 
 </head>
 
@@ -41,12 +86,11 @@
                </div>
 
                <div class="collapse navbar-collapse">
-                    <ul class="nav navbar-nav navbar-right">
+                    <ul class="nav navbar-nav navbar-right" id="nav-list">
                          <li><a class="smoothScroll" href="/">首页</a></li>
                          <li><a class="smoothScroll" href="/picture">图片</a></li>
                          <li><a class="smoothScroll" href="/video">视频</a></li>
-                         <li><a class="smoothScroll" href="/login">登录</a></li>
-                         <li><a class="smoothScroll" href="/register">注册</a></li>
+                         <!-- 注意：原有的 <li><a href="/login">登录</a></li> 和 <li><a href="/register">注册</a></li> 已被移除，后续由 JS 动态添加头像 -->
                     </ul>
                </div>
           </div>
@@ -98,6 +142,60 @@
      <script src="js/wow.min.js"></script>
      <script src="js/custom.js"></script>
 
+     <!-- ========== 新增：登录状态检查 + 头像加载（不依赖任何原有库，纯原生 JS） ========== -->
+     <script>
+        (function() {
+            // 1. 登录状态检查
+            const currentUser = localStorage.getItem('loggedInUser');
+            if (!currentUser) {
+                window.location.href = '/landing.html';
+                return;
+            }
+
+            // 2. 加载用户头像并动态添加到导航栏
+            async function loadUserAvatar(username) {
+                try {
+                    const response = await fetch(`/api/user/info?username=${encodeURIComponent(username)}`);
+                    const data = await response.json();
+                    if (data.code === 200) {
+                        const avatarUrl = data.data.avatar && data.data.avatar.trim() !== '' ? data.data.avatar : '/images/default-avatar.png';
+                        const navList = document.getElementById('nav-list');
+                        if (!navList) return;
+
+                        // 创建头像 li 元素
+                        const avatarLi = document.createElement('li');
+                        avatarLi.className = 'avatar-li';
+                        avatarLi.innerHTML = `
+                            <div class="avatar-dropdown">
+                                <img src="${avatarUrl}" class="avatar-img" alt="avatar" onerror="this.src='/images/default-avatar.png'">
+                                <div class="dropdown-content">
+                                    <a href="/profile.html?username=${username}">个人资料</a>
+                                    <a href="#" id="logoutBtn">退出登录</a>
+                                </div>
+                            </div>
+                        `;
+                        navList.appendChild(avatarLi);
+
+                        // 退出登录逻辑
+                        const logoutBtn = document.getElementById('logoutBtn');
+                        if (logoutBtn) {
+                            logoutBtn.addEventListener('click', (e) => {
+                                e.preventDefault();
+                                localStorage.removeItem('loggedInUser');
+                                window.location.href = '/landing.html';
+                            });
+                        }
+                    } else {
+                        console.error('加载用户信息失败');
+                    }
+                } catch (err) {
+                    console.error('网络错误', err);
+                }
+            }
+
+            loadUserAvatar(currentUser);
+        })();
+     </script>
 </body>
 
 </html>

@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>个人资料 - TinyWebServer</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 50px; }
+        label { display: inline-block; width: 80px; vertical-align: top; }
+        input, select, textarea { width: 250px; margin-bottom: 10px; }
+        button { margin-top: 10px; }
+        #age { background: #f0f0f0; }
+        .info { margin-bottom: 20px; }
+    </style>
+</head>
+<body>
+    <h2>个人资料</h2>
+    <div class="info">
+        <label>用户名：</label><span id="username_span"></span><br>
+    </div>
+    <form id="profileForm">
+        <label>昵称：</label><input type="text" id="nickname" name="nickname"><br>
+        <label>头像URL：</label><input type="text" id="avatar" name="avatar" placeholder="可选"><br>
+        <label>邮箱：</label><input type="email" id="email" name="email"><br>
+        <label>性别：</label>
+        <select id="gender" name="gender">
+            <option value="male">男</option>
+            <option value="female">女</option>
+            <option value="other">保密</option>
+        </select><br>
+        <label>出生日期：</label><input type="date" id="birthday" name="birthday"><br>
+        <label>年龄：</label><input type="text" id="age" readonly placeholder="自动计算"><br>
+        <label>简介：</label><textarea id="bio" name="bio" rows="3" cols="30"></textarea><br>
+        <label>注册时间：</label><span id="created_at"></span><br>
+        <button type="submit">保存修改</button>
+    </form>
+    <div id="message" style="margin-top: 20px;"></div>
+
+    <script>
+        // 从URL获取用户名
+        const urlParams = new URLSearchParams(window.location.search);
+        const username = urlParams.get('username');
+        if (!username) {
+            document.getElementById('message').innerText = '未指定用户名，请从正确入口登录。';
+        } else {
+            document.getElementById('username_span').innerText = username;
+            loadUserInfo();
+        }
+
+        // 根据出生日期计算年龄
+        function calculateAge(birthdayStr) {
+            if (!birthdayStr) return '';
+            const birthDate = new Date(birthdayStr);
+            const today = new Date();
+            let age = today.getFullYear() - birthDate.getFullYear();
+            const m = today.getMonth() - birthDate.getMonth();
+            if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
+                age--;
+            }
+            return age;
+        }
+
+        function loadUserInfo() {
+            fetch(`/api/user/info?username=${encodeURIComponent(username)}`)
+                .then(res => res.json())
+                .then(data => {
+                    if (data.code === 200) {
+                        document.getElementById('nickname').value = data.data.nickname || '';
+                        document.getElementById('avatar').value = data.data.avatar || '';
+                        document.getElementById('email').value = data.data.email || '';
+                        document.getElementById('bio').value = data.data.bio || '';
+                        document.getElementById('gender').value = data.data.gender || 'other';
+                        const birthday = data.data.birthday || '';
+                        document.getElementById('birthday').value = birthday;
+                        const age = calculateAge(birthday);
+                        document.getElementById('age').value = age;
+                        document.getElementById('created_at').innerText = data.data.created_at || '';
+                    } else {
+                        document.getElementById('message').innerText = '加载失败：' + data.msg;
+                    }
+                })
+                .catch(err => {
+                    document.getElementById('message').innerText = '网络错误';
+                });
+        }
+
+        document.getElementById('profileForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const formData = new URLSearchParams();
+            formData.append('username', username);
+            formData.append('nickname', document.getElementById('nickname').value);
+            formData.append('avatar', document.getElementById('avatar').value);
+            formData.append('email', document.getElementById('email').value);
+            formData.append('bio', document.getElementById('bio').value);
+            formData.append('gender', document.getElementById('gender').value);
+            formData.append('birthday', document.getElementById('birthday').value);
+            // 年龄不提交
+
+            fetch('/api/user/update', {
+                method: 'POST',
+                body: formData
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.code === 200) {
+                    document.getElementById('message').innerText = '保存成功！';
+                    // 重新加载以更新年龄显示（如果需要）
+                    loadUserInfo();
+                } else {
+                    document.getElementById('message').innerText = '保存失败：' + data.msg;
+                }
+            })
+            .catch(err => {
+                document.getElementById('message').innerText = '网络错误';
+            });
+        });
+
+        // 当出生日期改变时，自动重新计算年龄并显示
+        document.getElementById('birthday').addEventListener('change', function() {
+            const birthday = this.value;
+            const age = calculateAge(birthday);
+            document.getElementById('age').value = age;
+        });
+    </script>
+</body>
+</html>

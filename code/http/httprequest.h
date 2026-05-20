@@ -40,6 +40,14 @@ public:
     // 根据HTTP版本和Connection请求头,判断是否保持连接
     bool IsKeepAlive() const;
 
+    // ---------- 新增：API 支持 ----------
+    bool IsApiRequest() const { return isApiRequest_; }
+    std::string GetQueryParam(const std::string& key) const;
+
+    bool NeedRedirect() const { return !redirectUrl_.empty(); }
+    std::string GetRedirectUrl() const { return redirectUrl_; }
+    void SetRedirectUrl(const std::string& url) { redirectUrl_ = url; }
+
 private:
     bool ParseRequestLine_(const std::string& line);    // 处理请求行
     void ParseHeader_(const std::string& line);         // 处理请求头
@@ -48,6 +56,11 @@ private:
     void ParsePath_();                                  // 处理请求路径
     void ParsePost_();                                  // 处理Post事件
     void ParseFromUrlencoded_();                        // 从url种解析编码
+
+    // ---------- 新增成员 ----------
+    bool isApiRequest_;           // 是否为 API 请求
+    std::string queryString_;     // 请求中的查询字符串（不含？）
+    std::string redirectUrl_;   // 重定向目标 URL（若非空）
     
     // 静态方法,用于验证用户名和密码,链接MySQL数据库(通过 sqlConnPool )查询或插入用户记录,isLogin 为 true 表示登陆验证,false表示注册
     static bool UserVerify(const std::string& name, const std::string& pwd, bool isLogin);  // 用户验证

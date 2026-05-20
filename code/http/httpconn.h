@@ -84,6 +84,16 @@ private:
 
     HttpRequest request_;               // 请求解析器
     HttpResponse response_;             // 响应生成器
+
+    // 处理 API 请求（/api/*）
+    void handleApiRequest(Buffer& writeBuff);
+    
+    // 辅助函数：发送 JSON 响应
+    void sendJsonResponse(Buffer& buff, int httpCode, const std::string& json);
+    void sendJsonError(Buffer& buff, int httpCode, const std::string& msg);
+    
+    // 辅助函数：JSON 字符串转义
+    std::string escapeJson(const std::string& s);
 };
 
 
